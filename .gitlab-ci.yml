@@ -1,0 +1,204 @@
+stages:
+  - validate
+  - build-ami
+  - build-app
+  - test
+  - scan
+  - containerize
+  - push
+  - terraform-validate
+  - terraform-plan
+  - terraform-apply
+
+variables:
+  # AMI Configuration
+  AWS_REGION: us-east-1
+  PACKER_FILE: java-app-ami.pkr.hcl
+  
+  # Java App Configuration
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  
+  # Container Configuration
+  DOCKER_IMAGE_NAME: java-application
+  DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  ARTIFACTORY_URL: https://your-instance.jfrog.io
+  ARTIFACTORY_REPO: docker-local
+  
+  # SonarCloud Configuration
+  SONAR_PROJECT_KEY: your-project-key
+  SONAR_ORGANIZATION: your-organization
+  
+  # Terraform Configuration
+  TF_ROOT: terraform
+  TF_VAR_ami_id: ${AMI_ID}
+  TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  TF_VAR_app_version: ${DOCKER_IMAGE_TAG}
+
+# Cache dependencies between jobs
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .m2/repository
+    - target/
+
+# ======= PACKER AMI BUILD =======
+validate-packer:
+  stage: validate
+  image: hashicorp/packer:latest
+  script:
+    - packer init $PACKER_FILE
+    - packer validate $PACKER_FILE
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+      changes:
+        - "*.pkr.hcl"
+        - "scripts/**/*"
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "*.pkr.hcl"
+        - "scripts/**/*"
+
+build-ami:
+  stage: build-ami
+  image: hashicorp/packer:latest
+  script:
+    - packer init $PACKER_FILE
+    - packer build -color=false -machine-readable $PACKER_FILE | tee packer_output.txt
+    - AMI_ID=$(grep 'artifact,0,id' packer_output.txt | cut -d: -f2 | cut -d, -f2)
+    - echo "AMI_ID=$AMI_ID" >> ami.env
+  artifacts:
+    reports:
+      dotenv: ami.env
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "*.pkr.hcl"
+        - "scripts/**/*"
+  environment: production
+
+# ======= JAVA APPLICATION BUILD =======
+build-app:
+  stage: build-app
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn clean package -DskipTests
+  artifacts:
+    paths:
+      - target/*.jar
+    expire_in: 1 day
+
+test-app:
+  stage: test
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn test
+  artifacts:
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+sonarcloud-scan:
+  stage: scan
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn sonar:sonar
+      -Dsonar.projectKey=$SONAR_PROJECT_KEY
+      -Dsonar.organization=$SONAR_ORGANIZATION
+      -Dsonar.host.url=https://sonarcloud.io
+      -Dsonar.login=$SONAR_TOKEN
+  only:
+    - merge_requests
+    - main
+  allow_failure: false
+
+# ======= DOCKER CONTAINERIZATION =======
+build-docker:
+  stage: containerize
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  script:
+    - docker build -t $DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
+    - docker tag $DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG $ARTIFACTORY_URL/$ARTIFACTORY_REPO/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+    - docker tag $DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG $ARTIFACTORY_URL/$ARTIFACTORY_REPO/$DOCKER_IMAGE_NAME:latest
+    - echo "FULL_IMAGE_NAME=$ARTIFACTORY_URL/$ARTIFACTORY_REPO/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG" >> docker.env
+  artifacts:
+    reports:
+      dotenv: docker.env
+  dependencies:
+    - build-app
+
+scan-docker:
+  stage: scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy image $DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG --format table --exit-code 1 --severity HIGH,CRITICAL
+  dependencies:
+    - build-docker
+  allow_failure: true
+
+push-to-artifactory:
+  stage: push
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  script:
+    - echo $ARTIFACTORY_API_KEY | docker login $ARTIFACTORY_URL -u $ARTIFACTORY_USERNAME --password-stdin
+    - docker push $ARTIFACTORY_URL/$ARTIFACTORY_REPO/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+    - docker push $ARTIFACTORY_URL/$ARTIFACTORY_REPO/$DOCKER_IMAGE_NAME:latest
+  dependencies:
+    - build-docker
+  only:
+    - main
+
+# ======= TERRAFORM INFRASTRUCTURE DEPLOYMENT =======
+terraform-validate:
+  stage: terraform-validate
+  image: hashicorp/terraform:latest
+  script:
+    - cd $TF_ROOT
+    - terraform init -backend=false
+    - terraform validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - "terraform/**/*"
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "terraform/**/*"
+
+terraform-plan:
+  stage: terraform-plan
+  image: hashicorp/terraform:latest
+  script:
+    - cd $TF_ROOT
+    - terraform init
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=$CI_PROJECT_NAME-$CI_ENVIRONMENT_NAME.tfstate"
+      -backend-config="region=$AWS_REGION"
+    - terraform plan -out=tfplan
+  artifacts:
+    paths:
+      - $TF_ROOT/tfplan
+    expire_in: 1 week
+  dependencies:
+    - build-ami
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  environment: production
+
+terraform-apply:
+  stage: terraform-apply
+  image: hashicorp/terraform:latest
+  script:
+    - cd $TF_ROOT
+    - terraform init
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=$CI_PROJECT_NAME-$CI_ENVIRONMENT_NAME.tfstate"
+      -backend-config="region=$AWS_REGION"
+    - terraform apply -auto-approve tfplan
+  dependencies:
+    - terraform-plan
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  environment: production
