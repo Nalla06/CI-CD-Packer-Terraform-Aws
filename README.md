@@ -1,3 +1,21 @@
+project-root/
+│
+├── ami-template.pkr.hcl            # Packer template
+├── scripts/                        # Scripts for Packer
+│
+├── src/                            # Java application source code
+├── pom.xml                         # Maven configuration
+│
+├── Dockerfile                      # Docker image definition
+│
+├── terraform/                      # Terraform configuration
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── ...
+│
+└── .gitlab-ci.yml                  # This pipeline file
+
 ## Automated Deployment Pipeline with Packer, Terraform &amp; AWS
 Steps to Follow for the Project
 📌 Part 1: Build a Golden AMI using Packer

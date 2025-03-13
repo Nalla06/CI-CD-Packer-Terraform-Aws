@@ -1,0 +1,114 @@
+packer {
+  required_plugins {
+    amazon = {
+      source  = "github.com/hashicorp/amazon"
+      version = ">= 1.0.0"
+    }
+  }
+}
+
+source "amazon-ebs" "my_ami" {
+  region           = "us-east-1"
+  source_ami       = "ami-08b5b3a93ed654d19"  # Amazon Linux 2023
+  instance_type    = "t3.micro"
+  ssh_username     = "ec2-user"
+  ami_name         = "java-app-base-ami-{{timestamp}}"
+  tags = {
+    Name        = "JavaAppBaseAMI"
+    Environment = "Development"
+    Project     = "DevOpsProject"
+  }
+}
+
+build {
+  sources = ["source.amazon-ebs.my_ami"]
+  
+  provisioner "shell" {
+    inline = [
+      "set -eux",
+      "sudo touch /var/log/packer-provisioning.log",
+      "echo 'Starting provisioning at $(date)' | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Updating system packages...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum update -y | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing Docker...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y docker | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo systemctl enable docker | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo systemctl start docker | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo usermod -aG docker ec2-user | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing Git...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y git | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing AWS CLI...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y aws-cli | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing Java for future Java application...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y java-17-amazon-corretto | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing CloudWatch Agent...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y amazon-cloudwatch-agent | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Configuring CloudWatch Agent...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo mkdir -p /opt/aws/amazon-cloudwatch-agent/etc/",
+      "sudo cat > /tmp/cloudwatch-config.json << 'EOL'",
+      "{",
+      "  \"agent\": {",
+      "    \"metrics_collection_interval\": 60",
+      "  },",
+      "  \"metrics\": {",
+      "    \"metrics_collected\": {",
+      "      \"cpu\": {",
+      "        \"resources\": [\"*\"],",
+      "        \"measurement\": [\"usage_active\"]",
+      "      },",
+      "      \"disk\": {",
+      "        \"resources\": [\"*\"],",
+      "        \"measurement\": [\"used_percent\"]",
+      "      },",
+      "      \"mem\": {",
+      "        \"measurement\": [\"used_percent\"]",
+      "      }",
+      "    }",
+      "  },",
+      "  \"logs\": {",
+      "    \"logs_collected\": {",
+      "      \"files\": {",
+      "        \"collect_list\": [",
+      "          {",
+      "            \"file_path\": \"/var/log/messages\",",
+      "            \"log_group_name\": \"/var/log/messages\",",
+      "            \"log_stream_name\": \"{instance_id}\"",
+      "          },",
+      "          {",
+      "            \"file_path\": \"/var/log/packer-provisioning.log\",",
+      "            \"log_group_name\": \"/var/log/packer-provisioning\",",
+      "            \"log_stream_name\": \"{instance_id}\"",
+      "          }",
+      "        ]",
+      "      }",
+      "    }",
+      "  }",
+      "}",
+      "EOL",
+      "sudo mv /tmp/cloudwatch-config.json /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+      "sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo systemctl enable amazon-cloudwatch-agent | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Installing AWS SSM Agent...' | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo yum install -y amazon-ssm-agent | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo systemctl enable amazon-ssm-agent | sudo tee -a /var/log/packer-provisioning.log",
+      "sudo systemctl start amazon-ssm-agent | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Verifying installations...' | sudo tee -a /var/log/packer-provisioning.log",
+      "docker --version | sudo tee -a /var/log/packer-provisioning.log || echo 'Docker not properly installed' | sudo tee -a /var/log/packer-provisioning.log",
+      "git --version | sudo tee -a /var/log/packer-provisioning.log || echo 'Git not properly installed' | sudo tee -a /var/log/packer-provisioning.log",
+      "java -version 2>&1 | sudo tee -a /var/log/packer-provisioning.log || echo 'Java not properly installed' | sudo tee -a /var/log/packer-provisioning.log",
+      "amazon-cloudwatch-agent-ctl -a status | sudo tee -a /var/log/packer-provisioning.log || echo 'CloudWatch agent not properly configured' | sudo tee -a /var/log/packer-provisioning.log",
+      "systemctl status amazon-ssm-agent | sudo tee -a /var/log/packer-provisioning.log || echo 'SSM agent not properly running' | sudo tee -a /var/log/packer-provisioning.log",
+      
+      "echo 'Provisioning completed at $(date)' | sudo tee -a /var/log/packer-provisioning.log"
+    ]
+  }
+}
