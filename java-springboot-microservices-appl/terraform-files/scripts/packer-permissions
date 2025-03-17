@@ -1,0 +1,23 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": [
+				"dynamodb:DescribeContinuousBackups",
+				"dynamodb:DescribeTimeToLive",
+				"dynamodb:ListTagsOfResource",
+				"iam:CreateServiceLinkedRole",
+				"iam:ListRolePolicies",
+				"iam:ListAttachedRolePolicies",
+				"rds:CreateDBSubnetGroup",
+				"ec2:CreateSecurityGroup",
+				"ec2:CreateInstanceConnectEndpoint",
+				"ec2:DescribeSecurityGroups",
+				"ec2:AuthorizeSecurityGroupIngress",
+				"ec2:AuthorizeSecurityGroupEgress"
+			],
+			"Resource": "*"
+		}
+	]
+}
