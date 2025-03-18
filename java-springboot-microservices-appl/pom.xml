@@ -41,6 +41,9 @@
         <docker.image.dockerfile.dir>${basedir}</docker.image.dockerfile.dir>
         <docker.image.dockerize.version>v0.6.1</docker.image.dockerize.version>
         <docker.plugin.version>1.2.0</docker.plugin.version>
+        <!-- SonarQube Properties -->
+        <sonar.organization>nalla06-1</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
     </properties>
 
     <dependencyManagement>
@@ -129,6 +132,11 @@
                             <failOnNoGitDirectory>false</failOnNoGitDirectory>
                         </configuration>
                     </plugin>
+                    <plugin>
+                        <groupId>org.sonarsource.scanner.maven</groupId>
+                        <artifactId>sonar-maven-plugin</artifactId>
+                        <version>3.9.1.2184</version>
+                    </plugin>    
                 </plugins>
             </build>
 

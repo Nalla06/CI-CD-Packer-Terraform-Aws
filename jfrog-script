@@ -1,0 +1,29 @@
+default:
+  image: docker:latest
+
+include:
+  - remote: "https://releases.jfrog.io/artifactory/jfrog-cli/gitlab/v2/.setup-jfrog-unix.yml"
+  # For Windows agents:
+  #- remote: "https://releases.jfrog.io/artifactory/jfrog-cli/gitlab/v2/.setup-jfrog-windows.yml"
+jfrog-docker-build:
+  variables:
+    IMAGE_NAME: trialt1oy3w.jfrog.io/cicd-packer-aws-docker/jfrog-docker-example-image:$CI_PIPELINE_IID
+    JFROG_CLI_BUILD_NAME: jfrog-docker-build-example
+    JFROG_CLI_BUILD_NUMBER: $CI_PIPELINE_IID
+
+  tags: 
+      - gitlab-org-docker
+  services:
+      - docker:dind
+  script:
+      - apk add curl
+      - !reference [.setup_jfrog, script]
+      - jf docker build -t $IMAGE_NAME .
+      - jf docker push $IMAGE_NAME
+      - jf rt build-collect-env
+      - jf rt build-add-git
+      - jf rt build-publish
+
+  after_script:
+    # Cleanup
+     - !reference [.cleanup_jfrog, script]

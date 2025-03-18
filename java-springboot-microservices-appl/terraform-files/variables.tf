@@ -28,7 +28,7 @@ variable "database_subnets" {
 
 variable "ami_id" {
   description = "AMI ID for EC2 instances"
-  default     = "ami-08b5b3a93ed654d19"
+  type        = string
   # This should be your Packer-built AMI ID
 }
 
