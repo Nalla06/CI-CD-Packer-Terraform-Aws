@@ -59,11 +59,12 @@ build-ami:
   stage: build-ami
   image: hashicorp/packer:latest
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/
-    - packer init $PACKER_FILE
-    - packer build -color=false -machine-readable $PACKER_FILE | tee packer_output.txt
-    - AMI_ID=$(grep 'artifact,0,id' packer_output.txt | cut -d: -f2 | cut -d, -f2)
-    - echo "AMI_ID=$AMI_ID" >> ami.env
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/
+      packer init $PACKER_FILE
+      packer build -color=false -machine-readable $PACKER_FILE | tee packer_output.txt
+      AMI_ID=$(grep 'artifact,0,id' packer_output.txt | cut -d: -f2 | cut -d, -f2)
+      echo "AMI_ID=$AMI_ID" >> ami.env
   artifacts:
     reports:
       dotenv: ami.env
@@ -99,12 +100,13 @@ sonarcloud-scan:
   stage: scan
   image: maven:3.8-openjdk-17
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/
-    - mvn sonar:sonar
-      -Dsonar.projectKey=$SONAR_PROJECT_KEY
-      -Dsonar.organization=$SONAR_ORGANIZATION
-      -Dsonar.host.url=https://sonarcloud.io
-      -Dsonar.login=$SONAR_TOKEN
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/
+      mvn sonar:sonar
+        -Dsonar.projectKey=$SONAR_PROJECT_KEY
+        -Dsonar.organization=$SONAR_ORGANIZATION
+        -Dsonar.host.url=https://sonarcloud.io
+        -Dsonar.login=$SONAR_TOKEN
   only:
     - merge_requests
     - main
@@ -117,17 +119,18 @@ build-docker:
   services:
     - docker:20.10.16-dind
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/
-    - chmod +x build-dev-docker-images.sh
-    - ./build-dev-docker-images.sh
-    
-    # Tag for Artifactory 
-    - for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
-    -   docker tag petclinic-$service:dev ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG}
-    -   docker tag petclinic-$service:dev ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:latest
-    - done
-    
-    - echo "FULL_IMAGE_PREFIX=${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}" >> docker.env
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/
+      chmod +x build-dev-docker-images.sh
+      ./build-dev-docker-images.sh
+      
+      # Tag for Artifactory 
+      for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
+        docker tag petclinic-$service:dev ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG}
+        docker tag petclinic-$service:dev ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:latest
+      done
+      
+      echo "FULL_IMAGE_PREFIX=${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}" >> docker.env
   artifacts:
     reports:
       dotenv: docker.env
@@ -138,9 +141,10 @@ scan-docker:
   stage: scan
   image: aquasec/trivy:latest
   script:
-    - for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
-    -   trivy image ${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG} --format table --exit-code 0 --severity HIGH,CRITICAL
-    - done
+    - |
+      for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
+        trivy image ${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG} --format table --exit-code 0 --severity HIGH,CRITICAL
+      done
   dependencies:
     - build-docker
   allow_failure: true
@@ -151,27 +155,27 @@ push-to-artifactory:
   services:
     - docker:dind
   script:
-    - echo "$ARTIFACTORY_PASSWORD" | docker login $ARTIFACTORY_URL -u $ARTIFACTORY_USERNAME --password-stdin
-    - for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
-    -   docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG}
-    -   docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:latest
-    - done
+    - |
+      echo "$ARTIFACTORY_PASSWORD" | docker login $ARTIFACTORY_URL -u $ARTIFACTORY_USERNAME --password-stdin
+      for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
+        docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:${DOCKER_IMAGE_TAG}
+        docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_PREFIX}-$service:latest
+      done
   dependencies:
     - build-docker
-
-
 # ======= TERRAFORM INFRASTRUCTURE DEPLOYMENT =======
 terraform_validate:
   stage: terraform_validate
   image: hashicorp/terraform:1.4
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
-    - terraform init \
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
+      terraform init \
         -backend-config="bucket=${TF_STATE_BUCKET}" \
         -backend-config="key=${TF_STATE_KEY}" \
         -backend-config="region=${AWS_REGION}"
-    - terraform validate
-    - terraform fmt -check
+      terraform validate
+      terraform fmt -check
   only:
     - branches
     - merge_requests
@@ -184,12 +188,13 @@ terraform_plan:
   stage: terraform_plan
   image: hashicorp/terraform:1.4
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
-    - terraform init
-    - terraform validate
-    - terraform fmt -check
-    - terraform plan -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}" -out=tfplan
-    - terraform show -no-color tfplan > tfplan.txt
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
+      terraform init
+      terraform validate
+      terraform fmt -check
+      terraform plan -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}" -out=tfplan
+      terraform show -no-color tfplan > tfplan.txt
   only:
     - branches
     - merge_requests
@@ -209,9 +214,10 @@ terraform_apply:
   stage: terraform_apply
   image: hashicorp/terraform:1.4
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
-    - terraform init
-    - terraform apply -auto-approve tfplan
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
+      terraform init
+      terraform apply -auto-approve tfplan
   only:
     - main
   when: manual
@@ -228,9 +234,10 @@ terraform_destroy:
   stage: terraform_destroy
   image: hashicorp/terraform:1.4
   script:
-    - cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
-    - terraform init
-    - terraform destroy -auto-approve -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}"
+    - |
+      cd /home/nalla/CI-CD-Packer-Terraform-Aws/java-springboot-microservices-appl/terraform-files
+      terraform init
+      terraform destroy -auto-approve -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}"
   only:
     - main
   when: manual
