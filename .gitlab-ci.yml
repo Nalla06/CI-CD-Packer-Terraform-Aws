@@ -18,7 +18,7 @@ variables:
   
   # Java App Configuration
   MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
-  
+  ####
   # Container Configuration
   DOCKER_IMAGE_NAME: petclinic
   DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
