@@ -10,7 +10,7 @@ stages:
   - terraform_plan
   - terraform_apply
   - terraform_destroy 
-
+# variables to add 
 variables:
   # AMI Configuration
   AWS_REGION: us-east-1
