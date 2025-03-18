@@ -24,7 +24,7 @@ variables:
   DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
   ARTIFACTORY_URL: https://trialt1oy3w.jfrog.io/
   ARTIFACTORY_REPO: docker-local
-  
+  ###
   # SonarCloud Configuration
   SONAR_PROJECT_KEY: nalla06-1
   SONAR_ORGANIZATION: Lakshmi Rajyam Nalla
