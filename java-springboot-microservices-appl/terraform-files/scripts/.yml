@@ -5,8 +5,6 @@ stages:
   - test
   - scan
   - containerize
-  - build-docker
-  - scan-docker
   - push
   - terraform_validate
   - terraform_plan
@@ -39,11 +37,11 @@ variables:
 
 # Cache dependencies between jobs
 cache:
-  key: maven-cache-${CI_PROJECT_NAME}
+  key: maven-cache-${CI_PROJECT_NAME}  # Unique key per project to persist cache across pipelines
   paths:
-    - .m2/repository
-    - target/
-  policy: pull-push
+    - .m2/repository                   # Cache Maven dependencies
+    - target/                           # Cache built artifacts (JAR files)
+  policy: pull-push                     # Ensures cache is stored and reused across jobs
 
 # ======= PACKER AMI BUILD =======
 validate-packer:
@@ -89,16 +87,11 @@ build-app:
     - nalla
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
-    - ./mvnw dependency:go-offline
     - ./mvnw clean package -DskipTests
   artifacts:
     paths:
       - $CI_PROJECT_DIR/java-springboot-microservices-appl/*/target/*.jar
     expire_in: 1 day
-  rules:
-    - changes:
-        - "java-springboot-microservices-appl/**"
-        - "pom.xml"
 
 test-app:
   stage: test
@@ -107,37 +100,25 @@ test-app:
     - nalla
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
-    - ./mvnw dependency:go-offline
     - ./mvnw test
   artifacts:
     reports:
       junit: $CI_PROJECT_DIR/java-springboot-microservices-appl/*/target/surefire-reports/TEST-*.xml
-  dependencies:
-    - build-app
-  rules:
-    - changes:
-        - "java-springboot-microservices-appl/**"
-        - "pom.xml"
 
 # ====== SONAR SCAN ======
 sonarcloud-scan:
   stage: scan
-  image: maven:3.8-openjdk-17
+  image: maven:3.8-openjdk-11
   tags:
     - nalla
   script:
-    - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
-    - java -version
-    - mvn -version
-    - >
-      mvn verify sonar:sonar 
-      -Dsonar.maven.plugin.version=3.9.1.2184
-      -Dsonar.projectKey=$SONAR_PROJECT_KEY
-      -Dsonar.organization=$SONAR_ORGANIZATION
-      -Dsonar.host.url=https://sonarcloud.io
-      -Dsonar.login=$SONAR_TOKEN
-  dependencies:
-    - build-app
+    - |
+      cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
+      mvn sonar:sonar
+        -Dsonar.projectKey=$SONAR_PROJECT_KEY
+        -Dsonar.organization=$SONAR_ORGANIZATION
+        -Dsonar.host.url=https://sonarcloud.io
+        -Dsonar.login=$SONAR_TOKEN
   only:
     - merge_requests
     - main
@@ -145,36 +126,32 @@ sonarcloud-scan:
 
 # ======= DOCKER CONTAINERIZATION =======
 build-docker:
-  stage: build-docker
-  image: docker:latest
+  stage: scan
+  image: maven:3.8-openjdk-11  
   services:
-    - docker:20.10.16-dind
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
-  before_script:
-    - docker info
+    - name: docker:20.10.16-dind
+      command: ["--tls=false"]
+  tags:
+    - nalla
   script:
+    - export JAVA_HOME=/usr/lib/jvm/java-11-openjdk ## java variable added
+    - export PATH=$JAVA_HOME/bin:$PATH
+    - export DOCKER_HOST="tcp://docker:2375"
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
-    - ls -lah java-springboot-microservices-appl/*/target/
     - chmod +x build-dev-docker-images.sh
     - ./build-dev-docker-images.sh
   dependencies:
     - build-app
-  rules:
-    - changes:
-        - "java-springboot-microservices-appl/**"
-        - "pom.xml"
+
 
 scan-docker:
-  stage: scan-docker
-  image:
-    name: aquasec/trivy:latest
-    entrypoint: [""]
+  stage: scan
+  image: aquasec/trivy:latest
   tags:
     - nalla
   script:
-    - trivy image my-app:latest --format table --exit-code 0 --severity HIGH,CRITICAL
+    - |
+      trivy image my-app:latest --format table --exit-code 0 --severity HIGH,CRITICAL 
   dependencies:
     - build-docker
   allow_failure: true
@@ -283,6 +260,10 @@ terraform_destroy:
   only:
     - main
   when: manual
+  #cache:
+    #key: ${CI_COMMIT_REF_SLUG}
+    #paths:
+      #- /home/nalla/CI-CD-Packer-Terraform-Aws/$TF_ROOT/.terraform
   environment:
     name: dev
     action: stop
