@@ -1,22 +1,20 @@
 ## Automated Deployment Pipeline with Packer, Terraform & AWS 
 
-project-root/
-│
-├── ami-template.pkr.hcl            # Packer template for AMI creation
-├── scripts/                         # Scripts for Packer provisioning
-│
-├── src/                             # Java application source code
-├── pom.xml                          # Maven configuration file
-│
-├── Dockerfile                       # Docker image definition
-│
-├── terraform/                        # Terraform configuration files
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── ...
-│
-└── .gitlab-ci.yml                   # GitLab CI/CD pipeline configuration
+## 📌 Introduction
+This project automates the deployment of a **Java-based application** using **Packer, Terraform, Docker, and GitLab CI/CD**. The pipeline follows Infrastructure as Code (IaC) principles to ensure efficient, repeatable, and scalable deployments.  
+
+### **Key Technologies Used**
+- **Packer** → Builds a **Golden AMI** with required dependencies.
+
+- **Terraform** → Provisions AWS infrastructure (**VPC, ALB, ASG, RDS**).
+
+- **GitHub & GitLab CI/CD** → Automates application build & deployment.
+
+- **Maven** → Builds Java application (JAR/WAR).
+
+- **Docker** → Containerizes the application for easy deployment.
+
+- **CloudWatch & SSM Agent** → Enables logging & monitoring.
 
 ---
 
