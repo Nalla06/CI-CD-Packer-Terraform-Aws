@@ -1,0 +1,294 @@
+stages:
+  - validate
+  - build-ami
+  - build-app
+  - test
+  - scan
+  - containerize
+  - build-docker
+  - scan-docker
+  - push
+  - terraform_validate
+  - terraform_plan
+  - terraform_apply
+  - terraform_destroy
+
+variables:
+  # AMI Configuration
+  AWS_REGION: us-east-1
+  PACKER_FILE: my-packer/java-app-ami.pkr.hcl
+  
+  # Java App Configuration
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  
+  # Container Configuration
+  DOCKER_IMAGE_NAME: petclinic
+  DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  ARTIFACTORY_URL: https://trialt1oy3w.jfrog.io/
+  ARTIFACTORY_REPO: docker-local
+  
+  # SonarCloud Configuration
+  SONAR_PROJECT_KEY: nalla06-1
+  SONAR_ORGANIZATION: Lakshmi Rajyam Nalla
+  
+  # Terraform Configuration
+  TF_ROOT: terraform-files
+  TF_VAR_ami_id: ${AMI_ID}
+  TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  TF_VAR_app_version: ${DOCKER_IMAGE_TAG}
+
+# Cache dependencies between jobs
+cache:
+  key: maven-cache-${CI_PROJECT_NAME}
+  paths:
+    - .m2/repository
+    - target/
+  policy: pull-push
+
+# ======= PACKER AMI BUILD =======
+validate-packer:
+  stage: validate
+  image: hashicorp/packer:latest
+  tags:
+    - nalla
+  script:
+    - cd $CI_PROJECT_DIR/my-packer/
+    - packer init $PACKER_FILE
+    - packer validate $PACKER_FILE
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "my-packer/*.pkr.hcl"
+
+build-ami:
+  stage: build-ami
+  image: hashicorp/packer:latest
+  tags:
+    - nalla
+  script:
+    - |
+      cd $CI_PROJECT_DIR/my-packer/
+      packer init $PACKER_FILE
+      packer build -color=false -machine-readable $PACKER_FILE | tee packer_output.txt
+      AMI_ID=$(grep 'artifact,0,id' packer_output.txt | cut -d: -f2 | cut -d, -f2)
+      echo "AMI_ID=$AMI_ID" >> ami.env
+  artifacts:
+    reports:
+      dotenv: ami.env
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "my-packer/*.pkr.hcl"
+  environment: production
+
+# ======= JAVA APPLICATION BUILD =======
+build-app:
+  stage: build-app
+  image: maven:3.8-openjdk-17
+  tags:
+    - nalla
+  script:
+    - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
+    - ./mvnw dependency:go-offline
+    - ./mvnw clean package -DskipTests 
+      --add-opens jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED
+      --add-opens java.base/java.lang=ALL-UNNAMED
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/java-springboot-microservices-appl/*/target/*.jar
+    expire_in: 1 day
+  rules:
+    - changes:
+        - "java-springboot-microservices-appl/**"
+        - "pom.xml"
+
+test-app:
+  stage: test
+  image: maven:3.8-openjdk-11
+  tags:
+    - nalla
+  script:
+    - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
+    - ./mvnw dependency:go-offline
+    - ./mvnw test
+  artifacts:
+    reports:
+      junit: $CI_PROJECT_DIR/java-springboot-microservices-appl/*/target/surefire-reports/TEST-*.xml
+  dependencies:
+    - build-app
+  rules:
+    - changes:
+        - "java-springboot-microservices-appl/**"
+        - "pom.xml"
+
+# ====== SONAR SCAN ======
+sonarcloud-scan:
+  stage: scan
+  image: maven:3.8-openjdk-17  # This is correct - keep using Java 17
+  tags:
+    - nalla
+  script:
+    - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
+    - java -version  # Verify Java 17 is being used
+    - mvn -version
+    - >
+      mvn clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar
+      -Dsonar.projectKey=$SONAR_PROJECT_KEY
+      -Dsonar.organization=$SONAR_ORGANIZATION
+      -Dsonar.host.url=https://sonarcloud.io
+      -Dsonar.login=$SONAR_TOKEN
+      -Dsonar.java.source=17  # Updated to match the build Java version
+      -Dsonar.java.target=17  # Updated to match the build Java version
+  dependencies:
+    - build-app
+  only:
+    - merge_requests
+    - main
+  allow_failure: true
+# ======= DOCKER CONTAINERIZATION =======
+build-docker:
+  stage: build-docker
+  image: docker:latest
+  services:
+    - docker:20.10.16-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker info
+  script:
+    - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
+    - ls -lah java-springboot-microservices-appl/*/target/
+    - chmod +x build-dev-docker-images.sh
+    - ./build-dev-docker-images.sh
+  dependencies:
+    - build-app
+  rules:
+    - changes:
+        - "java-springboot-microservices-appl/**"
+        - "pom.xml"
+
+scan-docker:
+  stage: scan-docker
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]  # Ensure Trivy runs as expected
+  tags:
+    - nalla
+  before_script:
+    - docker pull ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} || exit 1  # Ensure image exists
+  script:
+    - trivy image ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} --format table --exit-code 0 --severity HIGH,CRITICAL
+  dependencies:
+    - build-docker
+  allow_failure: true
+# ======= PUSH TO ARTIFACTORY =======
+push-to-artifactory:
+  stage: push
+  image: docker:latest
+  services:
+    - docker:dind
+  tags:
+    - nalla
+  before_script:
+    - echo "Logging into Artifactory..."
+    - echo "$ARTIFACTORY_PASSWORD" | docker login $ARTIFACTORY_URL -u "$ARTIFACTORY_USERNAME" --password-stdin || exit 1
+  script:
+    - |
+      for service in admin-server api-gateway config-server customers-service discovery-server hystrix-dashboard vets-service visits-service; do
+        docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_NAME}-$service:${DOCKER_IMAGE_TAG}
+        docker push ${ARTIFACTORY_URL}/${ARTIFACTORY_REPO}/${DOCKER_IMAGE_NAME}-$service:latest
+      done
+  dependencies:
+    - build-docker
+
+
+# ======= TERRAFORM INFRASTRUCTURE DEPLOYMENT =======
+terraform_validate:
+  stage: terraform_validate
+  image: hashicorp/terraform:1.4
+  tags:
+    - nalla
+  script:
+    - |
+      cd $CI_PROJECT_DIR/$TF_ROOT
+      terraform init \
+        -backend-config="bucket=${TF_STATE_BUCKET}" \
+        -backend-config="key=${TF_STATE_KEY}" \
+        -backend-config="region=${AWS_REGION}"
+      terraform validate
+      terraform fmt -check
+  only:
+    - branches
+    - merge_requests
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - $CI_PROJECT_DIR/$TF_ROOT/.terraform
+
+terraform_plan:
+  stage: terraform_plan
+  image: hashicorp/terraform:1.4
+  tags:
+    - nalla
+  script:
+    - |
+      cd $CI_PROJECT_DIR/$TF_ROOT
+      terraform init
+      terraform validate
+      terraform fmt -check
+      terraform plan -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}" -out=tfplan
+      terraform show -no-color tfplan > tfplan.txt
+  only:
+    - branches
+    - merge_requests
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - /home/nalla/CI-CD-Packer-Terraform-Aws/$TF_ROOT/.terraform
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/$TF_ROOT/tfplan
+      - $CI_PROJECT_DIR/$TF_ROOT/tfplan.txt
+    expire_in: 1 week
+  dependencies:
+    - build-ami
+
+terraform_apply:
+  stage: terraform_apply
+  image: hashicorp/terraform:1.4
+  tags:
+    - nalla
+  script:
+    - |
+      cd $CI_PROJECT_DIR/$TF_ROOT
+      terraform init
+      terraform apply -auto-approve tfplan
+  only:
+    - main
+  when: manual
+  dependencies:
+    - terraform_plan
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - /home/nalla/CI-CD-Packer-Terraform-Aws/$TF_ROOT/.terraform
+  environment:
+    name: dev
+
+terraform_destroy:
+  stage: terraform_destroy
+  image: hashicorp/terraform:1.4
+  tags:
+    - nalla
+  script:
+    - |
+      cd $CI_PROJECT_DIR/$TF_ROOT
+      terraform init
+      terraform destroy -auto-approve -var "ami_id=${AMI_ID}" -var "db_password=${DB_PASSWORD}"
+  only:
+    - main
+  when: manual
+  environment:
+    name: dev
+    action: stop
