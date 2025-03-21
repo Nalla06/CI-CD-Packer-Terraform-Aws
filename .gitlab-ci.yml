@@ -34,7 +34,7 @@ build-app:
   stage: build-app
   image: maven:3.8-openjdk-11
   tags:
-    - nalla01
+    - nalla01 ## changed runner 
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
     - ./mvnw dependency:go-offline
