@@ -42,7 +42,7 @@ jobs:
           key: maven-${{ github.sha }}
           restore-keys: |
             maven-
-####
+
       - name: Build application
         run: |
           echo "Building application with commit SHA: ${{ github.sha }}"
