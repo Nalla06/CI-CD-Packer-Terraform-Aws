@@ -34,7 +34,7 @@ build-app:
   stage: build-app
   image: maven:3.8-openjdk-11
   tags:
-    - nalla
+    - nalla01
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
     - ./mvnw dependency:go-offline
@@ -55,7 +55,7 @@ test-app:
   stage: test
   image: maven:3.8-openjdk-11
   tags:
-    - nalla
+    - nalla01
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
     - ./mvnw dependency:go-offline
@@ -80,7 +80,7 @@ sonar-scan:
   stage: sonar-scan
   image: maven:3.8-openjdk-17
   tags:
-    - nalla
+    - nalla01
   script:
     - cd $CI_PROJECT_DIR/java-springboot-microservices-appl/
     - |
