@@ -27,15 +27,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
+        uses: actions/checkout@v4
+      
       - name: Set up JDK 11
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v3
         with:
           java-version: '11'
+          distribution: 'temurin'
 
       - name: Cache Maven packages
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.m2/repository
           key: maven-${{ github.sha }}
@@ -52,7 +53,7 @@ jobs:
           MAVEN_OPTS: ${{ env.MAVEN_OPTS }}
 
       - name: Archive JAR files
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: jar-files
           path: |
@@ -64,15 +65,16 @@ jobs:
     needs: build-app
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up JDK 11
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v3
         with:
           java-version: '11'
+          distribution: 'temurin'
 
       - name: Restore Maven cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.m2/repository
           key: maven-${{ github.sha }}
@@ -88,7 +90,7 @@ jobs:
           MAVEN_OPTS: ${{ env.MAVEN_OPTS }}
 
       - name: Archive test results
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: test-results
           path: java-springboot-microservices-appl/*/target/surefire-reports/
@@ -98,15 +100,16 @@ jobs:
     needs: test-app
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v3
         with:
           java-version: '17'
+          distribution: 'temurin'
 
       - name: Restore Maven cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.m2/repository
           key: maven-${{ github.sha }}
@@ -136,7 +139,7 @@ jobs:
     needs: build-app
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -148,7 +151,6 @@ jobs:
         run: |
           echo "Building Docker image for commit SHA: ${{ github.sha }}"
           cd java-springboot-microservices-appl/
-          ls -lah */target/
           chmod +x build-dev-docker-images.sh
           ./build-dev-docker-images.sh
           docker tag $DOCKER_IMAGE_NAME:latest $DOCKER_IMAGE_NAME:${{ github.sha }}
@@ -164,7 +166,7 @@ jobs:
     needs: build-docker
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Snyk CLI
         uses: snyk/actions/setup@v1
@@ -183,7 +185,7 @@ jobs:
     needs: [build-docker, snyk-scan]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker login
         run: echo ${{ secrets.JFROG_PASSWORD }} | docker login -u ${{ secrets.JFROG_USERNAME }} --password-stdin ${{ env.JFROG_URL }}
